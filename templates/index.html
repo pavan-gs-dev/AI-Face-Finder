@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FaceFinder AI</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Lucide Icons for high-quality icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Define Inter font and smooth scrolling */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        :root {
+            --primary-color: #3b82f6; /* Tailwind Blue-500 */
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8f9fa;
+        }
+        .hero-background {
+            /* Placeholder for the crowd image with blue overlay effect */
+            background-color: #1e3a8a; /* Dark Blue placeholder */
+            background-image: linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), 
+                              url('https://images.unsplash.com/photo-1492684223066-81342ee5ff30?q=80&w=2070&auto=format&fit=crop');
+            background-size: cover;
+            background-position: center;
+        }
+        .card-icon {
+            color: var(--primary-color);
+        }
+        /* Styling for the fixed sidebar */
+        #sidebar-panel {
+            transition: transform 0.3s ease-out;
+            z-index: 50; /* Above all other content */
+        }
+        /* Styling for the central auth modal */
+        #auth-modal {
+            background-color: rgba(0, 0, 0, 0.5); /* Semi-transparent overlay */
+            transition: opacity 0.3s ease-out;
+            z-index: 60; /* Above sidebar */
+        }
+        .modal-card {
+            transform: scale(0.95);
+            transition: transform 0.3s ease-out;
+        }
+        .modal-card.active {
+            transform: scale(1);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Main Application Container -->
+    <div id="app" class="flex-grow">
+        <!-- Content will be rendered here by JavaScript -->
+    </div>
+
+    <!-- Right Sidebar Panel (Hidden by default) -->
+    <div id="sidebar-panel" 
+         class="fixed top-0 right-0 w-full md:w-96 h-full bg-white shadow-2xl transform translate-x-full">
+        <!-- Content inserted here by JS -->
+    </div>
+
+    <!-- Central Authentication Modal (Hidden by default) -->
+    <div id="auth-modal" 
+         class="fixed inset-0 flex items-center justify-center opacity-0 pointer-events-none">
+        <!-- Modal Content Container -->
+        <div id="modal-content" class="modal-card w-full max-w-md bg-white p-8 rounded-xl shadow-2xl border-t-8 border-blue-600">
+            <!-- Content inserted here by JS -->
+        </div>
+    </div>
+
+    <!-- JavaScript Logic -->
+    <script>
+        // Global state variables
+        let currentPage = 'home';
+        let loginType = ''; // 'finder' or 'photographer'
+        let activeSidebar = null; // 'about', 'privacy', or 'terms'
+        let modalViewState = 'login'; // 'login' or 'signup'
+
+        // Constants and Icons (using Lucide icons via innerHTML for simplicity)
+        const SEARCH_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="card-icon"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><circle cx="8" cy="8" r="4"/></svg>';
+        const CAMERA_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="card-icon"><path d="M14.5 4h.5c.2 0 .4.1.5.2l.2.3 2.5 3.1a2 2 0 0 0 .5.7l.8.8c.4.4.6 1 .6 1.7v2c0 .4-.1.8-.3 1.1l-.8.8a2 2 0 0 0-.7.5l-3.1 2.5c-.1.1-.3.2-.5.2h-5c-.2 0-.4-.1-.5-.2l-.3-.2-3.1-2.5a2 2 0 0 0-.7-.5l-.8-.8a2 2 0 0 1-.3-1.1v-2c0-.4.1-.8.3-1.1l.8-.8a2 2 0 0 0 .7-.5l3.1-2.5c.1-.1.3-.2.5-.2h.5"/><circle cx="12" cy="13" r="3"/></svg>';
+        const LOGO = '<span class="text-xl font-bold text-gray-800">Face</span><span class="text-xl font-bold text-blue-600">Finder AI</span>';
+
+
+        // --- API COMMUNICATION LOGIC ---
+
+        async function handleAuthSubmit(event, mode) {
+            event.preventDefault();
+            
+            const submitBtn = event.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerText;
+            submitBtn.innerText = "Processing...";
+            submitBtn.disabled = true;
+
+            // Collect form data
+            const formData = new FormData(event.target);
+            const data = Object.fromEntries(formData.entries());
+            
+            // Critical: Add the role based on which card was clicked (finder or photographer)
+            data.role = loginType; 
+
+            // Determine endpoint
+            const endpoint = mode === 'login' ? '/auth/login' : '/auth/register';
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                
+                // Enhanced Error Handling: Check if response is valid JSON
+                const contentType = response.headers.get("content-type");
+                let result;
+                
+                if (contentType && contentType.includes("application/json")) {
+                    result = await response.json();
+                } else {
+                    // If backend crashed (HTML response), scan for known keywords like 'PermissionError'
+                    const text = await response.text();
+                    console.error("Server Response (Not JSON):", text);
+                    
+                    if (text.includes("PermissionError") || text.includes("Permission denied")) {
+                        throw new Error("❌ Permission Denied! \n\nPlease close 'users.csv' (Excel) and try again.");
+                    } else {
+                        throw new Error("Server Error. Check console logs.");
+                    }
+                }
+
+                if (response.ok) {
+                    // Success! Redirect to the URL provided by backend
+                    if (result.redirect) {
+                        window.location.href = result.redirect;
+                    } else {
+                        alert("Success, but no redirect URL provided.");
+                        submitBtn.innerText = originalText;
+                        submitBtn.disabled = false;
+                    }
+                } else {
+                    // Error from backend (e.g., "Invalid credentials", "User already exists")
+                    alert(result.error || "An error occurred.");
+                    submitBtn.innerText = originalText;
+                    submitBtn.disabled = false;
+                }
+            } catch (error) {
+                console.error('Fetch Error:', error);
+                alert(error.message); // Show specific error message
+                submitBtn.innerText = originalText;
+                submitBtn.disabled = false;
+            }
+        }
+
+
+        // --- SIDEBAR CONTENT RENDERERS ---
+
+        function renderAboutContent() {
+            return `
+                <h1 class="text-3xl font-bold mb-6 text-blue-600">Platform Overview</h1>
+                <p class="text-md text-gray-700 mb-6">
+                    FaceFinder AI is a revolutionary platform that connects event-goers with their captured memories using advanced face recognition technology.
+                </p>
+                <h2 class="text-xl font-semibold text-gray-800 mb-3">For Event-Goers</h2>
+                <p class="text-md text-gray-700 mb-6">
+                    Simply upload a selfie, and our AI securely scans event galleries to instantly locate all photos featuring you.
+                </p>
+                <h2 class="text-xl font-semibold text-gray-800 mb-3">For Photographers</h2>
+                <p class="text-md text-gray-700">
+                    Photographers can upload their professional event galleries manually or seamlessly connect via Bluetooth camera integration.
+                </p>
+            `;
+        }
+
+        function renderPrivacyContent() {
+            return `
+                <h1 class="text-3xl font-bold mb-6 text-blue-600">Privacy Policy</h1>
+                <p class="text-sm text-gray-500 mb-6">Effective Date: October 2025</p>
+                <h2 class="text-xl font-semibold text-gray-800 mb-3">1. Data Collected</h2>
+                <ul class="list-disc list-inside text-md text-gray-700 mb-6 space-y-2 pl-4">
+                    <li><strong>Biometric Data:</strong> Temporary face embeddings used only for matching.</li>
+                    <li><strong>Event Photos:</strong> Stored securely with watermarks.</li>
+                </ul>
+            `;
+        }
+        
+        function renderTermsContent() {
+            return `
+                <h1 class="text-3xl font-bold mb-6 text-blue-600">Terms of Service</h1>
+                <p class="text-sm text-gray-500 mb-6">Last Updated: October 2025</p>
+                <h2 class="text-xl font-semibold text-gray-800 mb-3">1. Acceptance</h2>
+                <p class="text-md text-gray-700 mb-6">By accessing FaceFinder AI, you agree to these terms.</p>
+            `;
+        }
+
+        // --- AUTHENTICATION MODAL LOGIC ---
+
+        function switchAuthView(view) {
+            modalViewState = view;
+            renderAuthModal();
+        }
+
+        function renderAuthModalContent() {
+            const isLogin = modalViewState === 'login';
+            const titleText = isLogin ? 'Sign In' : 'Create Account';
+            const buttonText = isLogin ? 'Sign In' : 'Sign Up';
+            
+            // Subtitle reflects the role
+            const roleLabel = loginType === 'finder' ? 'Photo Finder' : 'Photographer';
+
+            // Google Button (Placeholder)
+            const googleButton = `
+                <button type="button" onclick="alert('Google Auth not implemented in this demo')"
+                    class="w-full flex justify-center items-center py-3 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150">
+                    <svg class="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.372 0 0 5.372 0 12s5.372 12 12 12c6.627 0 12-5.372 12-12S18.627 0 12 0zm0 3c2.039 0 3.864.832 5.187 2.155l-2.096 2.096c-.663-.663-1.554-1.01-2.491-1.01-2.039 0-3.693 1.654-3.693 3.693 0 2.039 1.654 3.693 3.693 3.693 1.054 0 1.996-.408 2.709-1.06l2.164 2.164c-1.503 1.49-3.535 2.37-5.38 2.37-4.142 0-7.5-3.358-7.5-7.5 0-4.142 3.358-7.5 7.5-7.5zM12 9.5c.828 0 1.5.672 1.5 1.5s-.672 1.5-1.5 1.5-1.5-.672-1.5-1.5.672-1.5 1.5-1.5z"/></svg>
+                    Continue with Google
+                </button>
+            `;
+
+            let formFields = '';
+            let switchLink = '';
+
+            // We bind the onsubmit to handleAuthSubmit with the correct mode
+            const formStart = `<form class="space-y-4" onsubmit="handleAuthSubmit(event, '${isLogin ? 'login' : 'register'}')">`;
+
+            if (isLogin) {
+                // Login View
+                formFields = `
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email ID</label>
+                        <input id="email" name="email" type="email" autocomplete="email" required
+                            class="appearance-none block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition">
+                    </div>
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                        <input id="password" name="password" type="password" autocomplete="current-password" required
+                            class="appearance-none block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition">
+                    </div>
+                    <div>
+                        <button type="submit"
+                            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150">
+                            ${buttonText}
+                        </button>
+                    </div>
+                `;
+
+                switchLink = `<p class="text-center text-gray-600">Don't have an account? <button type="button" onclick="switchAuthView('signup')" class="font-medium text-blue-600 hover:text-blue-500">Sign Up</button></p>`;
+
+            } else {
+                // Signup View
+                formFields = `
+                    <div>
+                        <label for="name" class="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                        <input id="name" name="name" type="text" autocomplete="name" required
+                            class="appearance-none block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition">
+                    </div>
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email ID (Gmail)</label>
+                        <input id="email" name="email" type="email" autocomplete="email" required
+                            class="appearance-none block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition">
+                    </div>
+                    <div>
+                        <label for="phone" class="block text-sm font-medium text-gray-700 mb-1">Mobile Number</label>
+                        <div class="flex">
+                            <span class="inline-flex items-center px-3 border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm rounded-l-md">+91</span>
+                            <input id="phone" name="phone" type="tel" autocomplete="tel" required
+                                class="appearance-none block w-full px-4 py-2 border border-gray-300 rounded-r-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition">
+                        </div>
+                    </div>
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Create Password</label>
+                        <input id="password" name="password" type="password" autocomplete="new-password" required
+                            class="appearance-none block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition">
+                    </div>
+                    <div>
+                        <button type="submit"
+                            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 mt-4">
+                            ${buttonText}
+                        </button>
+                    </div>
+                `;
+
+                switchLink = `<p class="text-center text-gray-600">Already have an account? <button type="button" onclick="switchAuthView('login')" class="font-medium text-blue-600 hover:text-blue-500">Sign In</button></p>`;
+            }
+
+            return `
+                <div class="flex justify-between items-center mb-6">
+                    <div class="logo text-2xl">${LOGO}</div>
+                    <button onclick="hideAuthModal()" class="text-gray-500 hover:text-gray-900 transition p-2 rounded-full hover:bg-gray-100">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+
+                <h2 class="text-2xl font-bold text-center text-gray-900 mb-2">${titleText}</h2>
+                <p class="text-center text-gray-500 mb-6">Access as: <strong class="text-blue-600">${roleLabel}</strong></p>
+                
+                ${formStart}
+                    ${formFields}
+                </form>
+
+                <div class="relative flex items-center justify-center my-4">
+                    <div class="w-full border-t border-gray-300"></div>
+                    <div class="absolute bg-white px-2 text-sm text-gray-500">OR</div>
+                </div>
+                
+                ${googleButton}
+
+                <div class="mt-6 text-center text-sm">
+                    ${switchLink}
+                </div>
+
+                <div class="mt-4 text-center text-xs text-gray-400">
+                    By proceeding, you agree to our 
+                    <button onclick="showSidebar('terms'); hideAuthModal();" class="underline hover:text-blue-500">Terms</button> and 
+                    <button onclick="showSidebar('privacy'); hideAuthModal();" class="underline hover:text-blue-500">Privacy Policy</button>.
+                </div>
+            `;
+        }
+
+        function renderAuthModal() {
+            const content = document.getElementById('modal-content');
+            content.innerHTML = renderAuthModalContent();
+        }
+
+        function showAuthModal(type) {
+            loginType = type; // 'finder' or 'photographer'
+            modalViewState = 'login'; // Always start at login view
+            
+            const modal = document.getElementById('auth-modal');
+            const content = document.getElementById('modal-content');
+
+            renderAuthModal(); // Render content before showing
+            
+            modal.classList.remove('pointer-events-none');
+            modal.classList.add('opacity-100');
+            content.classList.add('active');
+            document.body.classList.add('overflow-hidden');
+        }
+
+        function hideAuthModal() {
+            const modal = document.getElementById('auth-modal');
+            const content = document.getElementById('modal-content');
+
+            modal.classList.remove('opacity-100');
+            content.classList.remove('active');
+            modal.classList.add('pointer-events-none');
+            // Only remove overflow hidden if the sidebar is also closed
+            if (!activeSidebar) {
+                document.body.classList.remove('overflow-hidden');
+            }
+        }
+
+        // --- SIDEBAR LOGIC ---
+
+        function renderSidebarContent(type) {
+            if (type === 'about') return renderAboutContent();
+            if (type === 'privacy') return renderPrivacyContent();
+            if (type === 'terms') return renderTermsContent();
+            return '';
+        }
+
+        function updateSidebar() {
+            const sidebar = document.getElementById('sidebar-panel');
+            
+            if (activeSidebar) {
+                // Show sidebar
+                sidebar.innerHTML = ''; // Clear previous content first
+                
+                // Determine the section name
+                const sectionName = activeSidebar === 'about' ? 'About Us' : activeSidebar === 'privacy' ? 'Privacy Policy' : 'Terms of Service';
+                
+                // Add the styled header and content
+                sidebar.innerHTML = `
+                    <div class="flex flex-col p-4 border-b shadow-sm">
+                        <div class="flex justify-between items-center mb-2">
+                            <!-- Styled Logo for Sidebar Header -->
+                            <div class="text-xl font-bold">
+                                <span class="text-gray-800">Face</span><span class="text-blue-600">Finder AI</span>
+                            </div>
+                            <button onclick="hideSidebar()" class="text-gray-500 hover:text-gray-900 transition p-2 rounded-full hover:bg-gray-100">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+                        <h2 class="text-2xl font-semibold text-gray-700">${sectionName}</h2>
+                    </div>
+                    <div class="p-6 h-[calc(100vh-100px)] overflow-y-auto">
+                        ${renderSidebarContent(activeSidebar)}
+                    </div>
+                `;
+                sidebar.classList.remove('translate-x-full');
+                document.body.classList.add('overflow-hidden'); 
+
+            } else {
+                // Hide sidebar
+                sidebar.classList.add('translate-x-full');
+                // Only remove overflow hidden if the modal is also closed
+                if (document.getElementById('auth-modal').classList.contains('pointer-events-none')) {
+                    document.body.classList.remove('overflow-hidden');
+                }
+                setTimeout(() => sidebar.innerHTML = '', 300); // Clear content after transition
+            }
+        }
+        
+        function showSidebar(type) {
+            hideAuthModal(); // Close modal if open
+            activeSidebar = type;
+            updateSidebar();
+        }
+
+        function hideSidebar() {
+            activeSidebar = null;
+            updateSidebar();
+        }
+
+        // --- MAIN PAGE RENDERING ---
+
+        function renderHome() {
+            return `
+                <!-- Navigation Bar -->
+                <header class="bg-white shadow-sm sticky top-0 z-10">
+                    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+                        <div class="logo">${LOGO}</div>
+                        <nav class="space-x-4">
+                            <button onclick="showSidebar('about')" class="text-gray-600 hover:text-blue-600 font-medium">
+                                About Us
+                            </button>
+                        </nav>
+                    </div>
+                </header>
+
+                <!-- Hero Section -->
+                <section class="hero-background text-white text-center py-20 md:py-32">
+                    <div class="max-w-4xl mx-auto px-4">
+                        <h1 class="text-4xl sm:text-5xl md:text-6xl font-extrabold mb-4 leading-tight">
+                            NEVER MISS A MOMENT AGAIN
+                        </h1>
+                        <p class="text-lg sm:text-xl font-medium">
+                            Find your event photos with the power of AI
+                        </p>
+                    </div>
+                </section>
+
+                <!-- Feature Cards Section -->
+                <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 -mt-16 sm:-mt-20 relative z-0">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+
+                        <!-- FOR PHOTO FINDERS Card -->
+                        <div onclick="showAuthModal('finder')"
+                            class="bg-white rounded-xl shadow-lg hover:shadow-xl transition duration-300 p-8 cursor-pointer border-t-4 border-blue-500 transform hover:-translate-y-1">
+                            <h2 class="text-2xl font-semibold text-center mb-6 text-gray-800">FOR PHOTO FINDERS</h2>
+                            <div class="flex flex-col items-center">
+                                ${SEARCH_ICON}
+                                <ul class="text-gray-600 mt-6 text-left space-y-2 list-none p-0">
+                                    <li class="flex items-start">
+                                        <span class="text-blue-500 mr-2">•</span> Upload a selfie for scanning
+                                    </li>
+                                    <li class="flex items-start">
+                                        <span class="text-blue-500 mr-2">•</span> AI finds your event photos
+                                    </li>
+                                    <li class="flex items-start">
+                                        <span class="text-blue-500 mr-2">•</span> Download your memories!
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- FOR PHOTOGRAPHERS Card -->
+                        <div onclick="showAuthModal('photographer')"
+                            class="bg-white rounded-xl shadow-lg hover:shadow-xl transition duration-300 p-8 cursor-pointer border-t-4 border-blue-500 transform hover:-translate-y-1">
+                            <h2 class="text-2xl font-semibold text-center mb-6 text-gray-800">FOR PHOTOGRAPHERS</h2>
+                            <div class="flex flex-col items-center">
+                                ${CAMERA_ICON}
+                                <ul class="text-gray-600 mt-6 text-left space-y-2 list-none p-0">
+                                    <li class="flex items-start">
+                                        <span class="text-blue-500 mr-2">•</span> Upload event photos (Manual/BT)
+                                    </li>
+                                    <li class="flex items-start">
+                                        <span class="text-blue-500 mr-2">•</span> AI indexes faces securely
+                                    </li>
+                                    <li class="flex items-start">
+                                        <span class="text-blue-500 mr-2">•</span> Manage your professional account
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </main>
+
+                <!-- Footer -->
+                <footer class="bg-gray-100 mt-auto py-6 border-t">
+                    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-sm text-gray-500">
+                        <p class="mb-2">&copy; 2025 FaceFinder AI. All rights reserved.</p>
+                        <div class="space-x-4">
+                            <button onclick="showSidebar('about')" class="hover:text-blue-600">About Us</button>
+                            <button onclick="showSidebar('privacy')" class="hover:text-blue-600">Privacy Policy</button>
+                            <button onclick="showSidebar('terms')" class="hover:text-blue-600">Terms of Service</button>
+                        </div>
+                    </div>
+                </footer>
+            `;
+        }
+
+        // Initialize the page view on load
+        window.onload = () => {
+            const app = document.getElementById('app');
+            app.innerHTML = renderHome();
+        }
+    </script>
+</body>
+</html>

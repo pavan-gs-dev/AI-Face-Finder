@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Upload to Folder - {{ folder_name }}</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Fix for mobile viewport height (address bars etc) */
+        body { 
+            background-color: #000; 
+            color: white; 
+            overflow: hidden; 
+            width: 100%;
+            height: 100vh; /* Fallback */
+            height: 100dvh; /* Dynamic viewport height for mobile */
+            display: flex; 
+            flex-direction: column; 
+        }
+
+        #camera-container { 
+            flex: 1; 
+            position: relative; 
+            overflow: hidden; 
+            width: 100%; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            background: #000;
+        }
+
+        video, img { 
+            width: 100%; 
+            height: 100%; 
+            object-fit: cover; 
+        }
+
+        /* Flash animation */
+        @keyframes flash { 0% { opacity: 1; } 100% { opacity: 0; } }
+        .flash-overlay { position: fixed; inset: 0; z-index: 50; pointer-events: none; animation: flash 0.3s ease-out forwards; }
+
+        /* Mobile safe area for footer */
+        .safe-area-pb {
+            padding-bottom: env(safe-area-inset-bottom, 20px);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="p-4 bg-gradient-to-b from-black/80 to-transparent absolute top-0 w-full z-10 flex justify-between items-center backdrop-blur-[2px]">
+        <div>
+            <h1 class="font-bold text-[10px] text-gray-400 tracking-widest uppercase">UPLOADING TO</h1>
+            <p class="text-lg font-bold text-blue-400 truncate max-w-[200px] shadow-black drop-shadow-md">{{ folder_name }}</p>
+        </div>
+        <div class="flex items-center space-x-2 bg-black/40 px-2 py-1 rounded-full border border-white/10">
+            <span class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+            <span class="text-xs text-red-500 font-bold tracking-wider">LIVE</span>
+        </div>
+    </div>
+
+    <!-- Main Viewport -->
+    <div id="camera-container">
+        <video id="videoFeed" autoplay playsinline></video>
+        <canvas id="captureCanvas" class="hidden"></canvas>
+        <img id="imagePreview" class="hidden">
+    </div>
+
+    <!-- Controls Footer -->
+    <!-- Added shrink-0 to prevent squashing, and safe-area-pb for iPhone home bar -->
+    <div class="w-full bg-black/80 backdrop-blur-xl border-t border-white/10 flex flex-col justify-center items-center relative z-20 shrink-0 safe-area-pb pt-4 px-6">
+        
+        <!-- Camera Mode Controls -->
+        <div id="cameraControls" class="flex justify-between items-center w-full max-w-sm mb-4">
+            <button onclick="alert('Flash toggled (simulated)')" class="p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition backdrop-blur-md">
+                <i data-lucide="zap" class="w-6 h-6"></i>
+            </button>
+            
+            <button onclick="takePicture()" class="relative group">
+                <div class="w-16 h-16 rounded-full border-4 border-white p-1 flex items-center justify-center">
+                    <div class="w-full h-full bg-white rounded-full group-active:scale-90 transition-transform duration-100"></div>
+                </div>
+            </button>
+            
+            <button onclick="flipCamera()" class="p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition backdrop-blur-md">
+                <i data-lucide="rotate-ccw" class="w-6 h-6"></i>
+            </button>
+        </div>
+
+        <!-- Preview Mode Controls -->
+        <div id="previewControls" class="hidden w-full max-w-sm justify-between gap-4 mb-4">
+            <button onclick="retake()" class="flex-1 py-3 bg-gray-700/80 text-white rounded-xl font-semibold flex items-center justify-center backdrop-blur-md active:scale-95 transition">
+                <i data-lucide="rotate-ccw" class="w-5 h-5 mr-2"></i> Retake
+            </button>
+            <button onclick="confirmUpload()" class="flex-1 py-3 bg-blue-600 text-white rounded-xl font-semibold flex items-center justify-center shadow-lg shadow-blue-900/50 active:scale-95 transition">
+                <i data-lucide="check" class="w-5 h-5 mr-2"></i> Upload
+            </button>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-black/90 z-50 hidden flex-col items-center justify-center backdrop-blur-sm">
+        <div class="bg-gray-800/50 p-6 rounded-2xl flex flex-col items-center border border-white/10">
+            <i data-lucide="loader-2" class="w-10 h-10 text-blue-500 animate-spin mb-3"></i>
+            <p class="text-white font-medium text-sm tracking-wide">Uploading securely...</p>
+        </div>
+    </div>
+
+    <!-- Success/Error Toast -->
+    <div id="toast" class="fixed top-24 left-1/2 -translate-x-1/2 bg-gray-900/90 text-white px-6 py-3 rounded-full shadow-2xl border border-white/10 transform -translate-y-20 opacity-0 transition-all duration-300 z-50 flex items-center backdrop-blur-md">
+        <span id="toastMsg" class="font-medium text-sm">Message</span>
+    </div>
+
+    <script>
+        lucide.createIcons();
+        
+        const userId = "{{ user_id }}";
+        const folderId = "{{ folder_id }}";
+        
+        let stream = null;
+        let facingMode = 'environment'; // Default back camera
+        const video = document.getElementById('videoFeed');
+        const canvas = document.getElementById('captureCanvas');
+        const preview = document.getElementById('imagePreview');
+        const camControls = document.getElementById('cameraControls');
+        const prevControls = document.getElementById('previewControls');
+
+        async function initCamera() {
+            try {
+                if(stream) {
+                    stream.getTracks().forEach(t => t.stop());
+                }
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: facingMode }
+                });
+                video.srcObject = stream;
+            } catch(e) {
+                console.error(e);
+                showToast("Camera access denied or unavailable.");
+            }
+        }
+
+        function flipCamera() {
+            facingMode = facingMode === 'user' ? 'environment' : 'user';
+            initCamera();
+        }
+
+        function takePicture() {
+            // Flash effect
+            const flash = document.createElement('div');
+            flash.className = 'flash-overlay fixed inset-0 bg-white z-50 pointer-events-none opacity-0';
+            flash.style.animation = 'flash 0.15s ease-out';
+            document.body.appendChild(flash);
+            setTimeout(() => flash.remove(), 150);
+
+            // Capture
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            
+            preview.src = canvas.toDataURL('image/jpeg');
+            
+            // Toggle UI
+            video.classList.add('hidden');
+            preview.classList.remove('hidden');
+            camControls.classList.add('hidden');
+            prevControls.classList.remove('hidden');
+            prevControls.classList.add('flex');
+        }
+
+        function retake() {
+            video.classList.remove('hidden');
+            preview.classList.add('hidden');
+            camControls.classList.remove('hidden');
+            prevControls.classList.add('hidden');
+            prevControls.classList.remove('flex');
+        }
+
+        function confirmUpload() {
+            document.getElementById('loadingOverlay').classList.remove('hidden');
+            document.getElementById('loadingOverlay').classList.add('flex');
+
+            canvas.toBlob(async (blob) => {
+                const formData = new FormData();
+                formData.append('image', blob, `mobile_${Date.now()}.jpg`);
+                formData.append('folder_id', folderId);
+                formData.append('user_id', userId); // Critical for auth bypass
+
+                try {
+                    const res = await fetch('/api/upload_folder_image', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if(res.ok) {
+                        showToast("Upload Successful!");
+                        setTimeout(() => {
+                            retake(); // Reset for next shot
+                            document.getElementById('loadingOverlay').classList.add('hidden');
+                            document.getElementById('loadingOverlay').classList.remove('flex');
+                        }, 1500);
+                    } else {
+                        showToast("Upload Failed.");
+                        document.getElementById('loadingOverlay').classList.add('hidden');
+                        document.getElementById('loadingOverlay').classList.remove('flex');
+                    }
+                } catch(e) {
+                    showToast("Server Error");
+                    document.getElementById('loadingOverlay').classList.add('hidden');
+                    document.getElementById('loadingOverlay').classList.remove('flex');
+                }
+            }, 'image/jpeg', 0.9);
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            document.getElementById('toastMsg').innerText = msg;
+            t.classList.remove('-translate-y-20', 'opacity-0');
+            setTimeout(() => t.classList.add('-translate-y-20', 'opacity-0'), 3000);
+        }
+
+        // Start
+        initCamera();
+    </script>
+</body>
+</html>

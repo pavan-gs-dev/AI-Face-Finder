@@ -1,0 +1,29 @@
+AI_FACEFINDER/
+│
+├── app.py
+├── image_scan.py
+│
+├── requirements.txt
+├── README.md
+├── LICENSE
+├── .gitignore
+│
+├── tests/
+│   └── test_basic.py
+│
+├── static/
+│   ├── cemara_image/
+│   ├── photographer_post_image/
+│
+├── templates/
+│   ├── index.html
+│   ├── photo_finder.html
+│   ├── Photographer.html
+│   └── mobile_capture.html
+│
+└── data/
+    ├── users.csv
+    ├── Photographer_address.csv
+    ├── photographer_folder.csv
+    ├── photographer_post_file_name.csv
+    └── cemara_image_name.csv

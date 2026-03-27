@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FaceFinder AI - Scan & Locate</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Custom styles for the app's dark theme */
+        :root {
+            --primary-color: #3b82f6; /* Blue-600 */
+            --background-dark: #202c3a; 
+            --card-dark: #2c3e50;
+            --slate-900: #0f172a; 
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--background-dark);
+        }
+
+        /* Styling for the blurry background */
+        .blur-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url('https://images.unsplash.com/photo-1492684223066-81342ee5ff30?q=80&w=2070&auto=format&fit=crop');
+            background-color: #1e293b; 
+            background-size: cover;
+            background-position: center;
+            filter: blur(10px);
+            opacity: 0.6;
+            z-index: 0;
+        }
+
+        /* Custom scrollbars */
+        #resultsGallery::-webkit-scrollbar,
+        .overflow-y-auto::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #resultsGallery::-webkit-scrollbar-thumb,
+        .overflow-y-auto::-webkit-scrollbar-thumb {
+            background: rgba(59, 130, 246, 0.5); 
+            border-radius: 4px;
+        }
+
+        /* Scanning Animation */
+        @keyframes photoFlip {
+            0% { transform: translateY(0) rotateX(0deg); opacity: 1; }
+            50% { transform: translateY(-10px) rotateX(20deg); opacity: 0.8; }
+            100% { transform: translateY(0) rotateX(0deg); opacity: 1; }
+        }
+
+        .photo-stack > div {
+            width: 80px;
+            height: 120px;
+            position: absolute;
+            top: 0;
+            left: 50%;
+            margin-left: -40px;
+            border-radius: 4px;
+            transform-origin: bottom center;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
+        }
+
+        .photo-stack .photo-1 { animation: photoFlip 1s infinite ease-in-out 0s; z-index: 3; background-color: #3b82f6; }
+        .photo-stack .photo-2 { animation: photoFlip 1s infinite ease-in-out 0.3s; z-index: 2; background-color: #2563eb; opacity: 0.7; transform: rotate(5deg); }
+        .photo-stack .photo-3 { animation: photoFlip 1s infinite ease-in-out 0.6s; z-index: 1; background-color: #1d4ed8; opacity: 0.5; transform: rotate(-5deg); }
+
+        /* Slide-in Modal Animation */
+        #cameramanModalContent {
+            transition: transform 0.3s ease-out;
+            transform: translateX(100%);
+            background-color: var(--slate-900);
+            border-color: var(--primary-color);
+        }
+        #cameramanModalContent.show {
+            transform: translateX(0);
+        }
+    </style>
+</head>
+<body class="text-white min-h-screen relative overflow-x-hidden">
+
+    <!-- 1. Blurred Background -->
+    <div class="blur-container"></div>
+    
+    <!-- Main Content Area -->
+    <div class="relative z-10 p-4 md:p-8 max-w-7xl mx-auto">
+        
+        <!-- Header -->
+        <header class="flex justify-between items-center py-2 px-4 mb-8 bg-white text-gray-800 shadow-md rounded-md">
+            <h1 class="text-2xl font-bold tracking-wider">
+                <span class="text-black">Face</span><span class="text-blue-600">Finder AI</span>
+            </h1>
+            
+            <!-- User Profile Icon -->
+            <button onclick="toggleProfileModal()" class="text-gray-600 hover:text-blue-600 transition p-2 rounded-full hover:bg-gray-100 flex items-center gap-2">
+                <span id="headerUserName" class="text-sm font-semibold hidden md:block">User</span>
+                <i data-lucide="user-circle" class="w-8 h-8"></i>
+            </button>
+        </header>
+
+        <!-- Scan Face Section -->
+        <section class="text-center py-16 md:py-24 bg-slate-800/70 backdrop-blur-sm rounded-xl shadow-2xl mb-12 border border-blue-500/30">
+            <h2 class="text-4xl md:text-6xl font-extrabold mb-4 tracking-tight">
+                <span class="text-blue-400">NEVER</span> MISS A MOMENT
+            </h2>
+            <p class="text-xl text-gray-300 mb-8">Find your event photos with the power of AI.</p>
+            
+            <button id="scanButton" onclick="showScanningModal()" class="inline-flex items-center justify-center px-8 py-4 text-lg font-semibold rounded-full bg-blue-600 hover:bg-blue-700 transition duration-300 shadow-lg shadow-blue-500/50 uppercase tracking-wide">
+                <i data-lucide="scan-face" class="w-6 h-6 mr-3"></i>
+                Scan Face
+            </button>
+            <p id="scanMessage" class="mt-4 text-sm text-gray-400 opacity-0 transition-opacity duration-500">Awaiting camera access...</p>
+        </section>
+
+        <!-- Scanned Photos Gallery - HIDDEN by default -->
+        <section id="resultsSection" class="mb-12 hidden">
+            <h3 class="text-3xl font-semibold mb-6 text-gray-100">Your Scanned Matches</h3>
+            <!-- Container for results -->
+            <!-- FIXED: Added explicit grid classes for consistent sizing -->
+            <div id="resultsGallery" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 overflow-y-scroll max-h-[80vh] p-4 bg-slate-800/50 rounded-xl border border-gray-700 min-h-[200px]">
+                <!-- Results injected here -->
+            </div>
+        </section>
+    </div>
+
+    <!-- 2. Scanning Modal -->
+    <div id="scanningModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center hidden" onclick="handleModalBackgroundClick(event)">
+        <div class="p-8 bg-slate-800/95 rounded-xl text-center max-w-xl w-11/12 shadow-2xl border border-blue-500/50">
+            <div id="cameraView" class="w-full h-64 bg-slate-700 rounded-lg flex items-center justify-center text-gray-400 text-lg mb-6 border-4 border-dashed border-gray-600 overflow-hidden relative">
+                <p id="cameraText">Camera Feed Placeholder</p>
+                <video id="videoElement" class="hidden w-full h-full object-cover rounded-md" autoplay playsinline></video>
+            </div>
+            
+            <div id="scanAnimation" class="hidden">
+                <div class="photo-stack relative w-24 h-32 mx-auto mb-6">
+                    <div class="photo-3"></div>
+                    <div class="photo-2"></div>
+                    <div class="photo-1"></div>
+                </div>
+                <p class="text-xl font-semibold text-gray-200">Processing Face Data...</p>
+                <p class="text-sm text-gray-400">Matching captured face with event photos.</p>
+            </div>
+
+            <p id="scanStatus" class="text-lg text-blue-400 font-medium">Requesting Camera Access...</p>
+            
+            <div id="actionButtons" class="mt-4 flex gap-4 justify-center">
+                <button id="captureBtn" class="hidden px-6 py-2 bg-blue-600 rounded-full hover:bg-blue-700 text-white font-bold transition" onclick="captureAndScan()">Capture & Scan</button>
+                <button id="cancelScanBtn" class="text-gray-400 hover:text-red-400 text-sm" onclick="stopCameraAndClose()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Full-Screen Image View Modal -->
+    <div id="imageModal" class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center hidden p-4" onclick="hideImageModal()">
+        <div id="imageModalContent" class="bg-slate-900 rounded-lg shadow-2xl max-w-xl md:max-w-2xl w-full h-auto max-h-[90vh] overflow-y-auto flex flex-col" onclick="event.stopPropagation()">
+            <div class="relative flex-shrink-0">
+                <button onclick="hideImageModal()" class="absolute top-4 right-4 p-2 bg-black/50 hover:bg-black/80 text-white rounded-full transition z-20">
+                    <i data-lucide="x" class="w-6 h-6"></i>
+                </button>
+                <img id="modalImage" src="" alt="Matched Photo" class="w-full h-auto rounded-t-lg object-contain">
+            </div>
+            
+            <div class="p-4 flex justify-around items-center bg-slate-800 rounded-b-lg border-t border-gray-700 flex-shrink-0">
+                <button class="flex flex-col items-center text-sm text-gray-400 hover:text-blue-400 transition" onclick="handleDownload()">
+                    <i data-lucide="download" class="w-6 h-6 mb-1"></i>
+                    Download
+                </button>
+                <!-- FIXED: Report action now triggers mailto -->
+                <button class="flex flex-col items-center text-sm text-gray-400 hover:text-red-400 transition" onclick="handleReport()">
+                    <i data-lucide="flag" class="w-6 h-6 mb-1"></i>
+                    Report
+                </button>
+                <button class="flex flex-col items-center text-sm text-blue-400 hover:text-blue-300 transition" onclick="showCameramanProfileSlide()">
+                    <i data-lucide="camera" class="w-6 h-6 mb-1"></i>
+                    Camera Man
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. Cameraman Profile Modal (Slide-in) -->
+    <div id="cameramanModal" class="fixed inset-0 z-50 flex justify-end items-center hidden" onclick="hideCameramanProfileSlide()">
+        <div id="cameramanModalContent" class="text-gray-100 w-full max-w-sm h-full shadow-2xl border-l border-blue-500/50 flex flex-col" onclick="event.stopPropagation()">
+            <div class="flex-shrink-0 p-4 flex items-center sticky top-0 bg-slate-900 border-b border-gray-700 z-10">
+                <button onclick="handleCameramanBack()" class="mr-4 text-white hover:text-blue-400">
+                    <i data-lucide="arrow-left" class="w-6 h-6"></i>
+                </button>
+                <h2 id="cameramanHeaderTitle" class="text-lg font-semibold text-blue-400">Photographer Profile</h2>
+            </div>
+
+            <div id="cameramanScrollArea" class="flex-grow overflow-y-auto">
+                <div id="profileGridView">
+                    <div class="p-4 border-b border-gray-700 bg-slate-900">
+                        <div class="flex items-center space-x-4 mb-4">
+                            <div class="w-20 h-20 bg-blue-600/70 rounded-full flex items-center justify-center border-2 border-blue-400 shrink-0">
+                                <i data-lucide="user" class="w-12 h-12 text-white"></i>
+                            </div>
+                            <div>
+                                <p id="camName" class="text-xl font-bold break-words">Loading...</p>
+                                <p id="camPostCount" class="text-sm text-gray-400">0 posts</p>
+                            </div>
+                        </div>
+                        <div class="space-y-2 text-sm text-gray-300">
+                             <!-- Folder info added -->
+                            <p class="flex items-center break-all"><i data-lucide="folder-open" class="w-4 h-4 mr-2 text-blue-400 shrink-0"></i> <span id="camFolderName">Unknown Folder</span></p>
+                            <p class="flex items-center break-all"><i data-lucide="image" class="w-4 h-4 mr-2 text-blue-400 shrink-0"></i> <span id="camImageName" class="text-xs text-gray-500">...</span></p>
+                            <p class="flex items-center break-all"><i data-lucide="mail" class="w-4 h-4 mr-2 text-blue-400 shrink-0"></i> <span id="camEmail">No Email</span></p>
+                            <p class="flex items-center break-all"><i data-lucide="phone" class="w-4 h-4 mr-2 text-blue-400 shrink-0"></i> <span id="camPhone">No Phone</span></p>
+                            <p class="flex items-center break-words"><i data-lucide="map-pin" class="w-4 h-4 mr-2 text-blue-400 shrink-0"></i> <span id="camAddress">No Address</span></p>
+                        </div>
+                    </div>
+                    <div class="text-center py-2 border-b border-gray-800 bg-slate-900">
+                        <i data-lucide="square-grid" class="w-5 h-5 mx-auto text-gray-500"></i>
+                    </div>
+                    <div id="cameramanPostGrid" class="grid grid-cols-3 gap-0.5 bg-slate-900">
+                        <!-- Posts injected here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. User Profile Modal -->
+    <div id="userProfileModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center hidden" onclick="toggleProfileModal()">
+        <div class="bg-white text-gray-800 rounded-xl p-6 w-full max-w-sm mx-4 shadow-2xl relative" onclick="event.stopPropagation()">
+            <button onclick="toggleProfileModal()" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800">
+                <i data-lucide="x" class="w-6 h-6"></i>
+            </button>
+            
+            <div class="text-center mb-6">
+                <div class="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <i data-lucide="user" class="w-10 h-10 text-blue-600"></i>
+                </div>
+                <h3 class="text-xl font-bold text-gray-900">My Profile</h3>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide">Full Name</label>
+                    <p id="profileName" class="text-lg font-medium border-b border-gray-200 pb-1">Loading...</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide">Email Address</label>
+                    <p id="profileEmail" class="text-lg font-medium border-b border-gray-200 pb-1">Loading...</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide">Mobile Number</label>
+                    <p id="profilePhone" class="text-lg font-medium border-b border-gray-200 pb-1">Loading...</p>
+                </div>
+            </div>
+
+            <div class="mt-8">
+                <button onclick="logout()" class="w-full flex items-center justify-center px-4 py-3 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition">
+                    <i data-lucide="log-out" class="w-5 h-5 mr-2"></i>
+                    Sign Out
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        lucide.createIcons();
+
+        // --- AUTH & SETUP ---
+        function preventBackNavigation() {
+            history.pushState(null, document.title, location.href);
+            window.addEventListener('popstate', function (event) {
+                history.pushState(null, document.title, location.href);
+            });
+        }
+
+        async function checkAuthAndLoadProfile() {
+            try {
+                preventBackNavigation();
+                const response = await fetch('/api/current_user');
+                if (response.status === 401 || response.status === 403) {
+                    window.location.replace('/'); 
+                    return;
+                }
+                const userData = await response.json();
+                document.getElementById('profileName').textContent = userData.name || 'N/A';
+                document.getElementById('profileEmail').textContent = userData.email || 'N/A';
+                document.getElementById('profilePhone').textContent = userData.phone || 'N/A';
+                document.getElementById('headerUserName').textContent = userData.name || 'User';
+
+            } catch (error) {
+                console.error("Auth check failed:", error);
+                window.location.replace('/'); 
+            }
+        }
+
+        async function logout() {
+            await fetch('/auth/logout', { method: 'POST' });
+            window.location.replace('/');
+        }
+
+        // --- GLOBAL VARIABLES ---
+        const scanningModal = document.getElementById('scanningModal');
+        const scanStatus = document.getElementById('scanStatus');
+        const cameraView = document.getElementById('cameraView');
+        const resultsSection = document.getElementById('resultsSection');
+        const resultsGallery = document.getElementById('resultsGallery');
+        const imageModal = document.getElementById('imageModal');
+        const cameramanModal = document.getElementById('cameramanModal');
+        const videoElement = document.getElementById('videoElement');
+        const captureBtn = document.getElementById('captureBtn');
+        const scanAnimation = document.getElementById('scanAnimation');
+        const cameraText = document.getElementById('cameraText');
+
+        let currentImageURL = ''; 
+        let currentMatchData = null; // Store full metadata of the currently viewed image
+        let mediaStream = null; 
+        
+        // Match Data Map: url -> full match object
+        let matchesMap = {}; 
+
+        // --- CAMERA LOGIC ---
+
+        function showScanningModal() {
+            scanningModal.classList.remove('hidden');
+            cameraView.classList.remove('hidden');
+            scanAnimation.classList.add('hidden');
+            scanStatus.textContent = "Requesting Camera Access...";
+            resultsSection.classList.add('hidden'); 
+            resultsGallery.innerHTML = ''; 
+            matchesMap = {}; // Reset map
+            
+            startCamera();
+        }
+
+        async function startCamera() {
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                videoElement.srcObject = mediaStream;
+                videoElement.classList.remove('hidden');
+                cameraText.classList.add('hidden');
+                captureBtn.classList.remove('hidden');
+                
+                scanStatus.textContent = "Align your face and click Capture";
+                cameraView.classList.remove('border-dashed', 'border-gray-600', 'border-red-600');
+                cameraView.classList.add('border-green-500/50', 'border-4');
+            } catch (error) {
+                console.error("Error accessing camera", error);
+                scanStatus.textContent = "Camera Access Denied. Please enable permissions.";
+                videoElement.classList.add('hidden');
+                cameraText.classList.remove('hidden');
+                cameraText.textContent = "Access Denied";
+                cameraView.classList.remove('border-green-500/50');
+                cameraView.classList.add('border-dashed', 'border-red-600');
+            }
+        }
+
+        function captureAndScan() {
+            if (!mediaStream) return;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = videoElement.videoWidth;
+            canvas.height = videoElement.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+            
+            const dataURL = canvas.toDataURL('image/jpeg', 0.8);
+
+            captureBtn.classList.add('hidden');
+            cameraView.classList.add('hidden');
+            scanAnimation.classList.remove('hidden');
+            scanStatus.textContent = "Sending to AI Engine...";
+            
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+
+            fetch('/api/scan_face', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: dataURL })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.matches && data.matches.length > 0) {
+                    displayResults(data.matches);
+                } else {
+                    scanStatus.textContent = "No matches found or no face detected.";
+                    setTimeout(() => { stopCameraAndClose(); }, 2000);
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                scanStatus.textContent = "Error during scan.";
+                setTimeout(() => { stopCameraAndClose(); }, 2000);
+            });
+        }
+
+        function displayResults(matches) {
+            scanStatus.textContent = "Scan Complete! " + matches.length + " matches found.";
+            
+            // Store matches in map for easy retrieval
+            matchesMap = {};
+            matches.forEach(m => {
+                matchesMap[m.url] = m;
+            });
+
+            resultsGallery.innerHTML = matches.map((match, index) => `
+                <div class="relative overflow-hidden rounded-lg shadow-xl cursor-pointer bg-gray-800">
+                    <!-- FIXED: Fixed height and width using Tailwind utilities -->
+                    <img src="${match.url}" 
+                        alt="Match ${index + 1}" 
+                        class="w-full h-64 object-cover transition duration-300 transform hover:scale-105"
+                        onclick="showImageModal(event, '${match.url}')">
+                </div>
+            `).join('');
+            
+            lucide.createIcons();
+            resultsSection.classList.remove('hidden');
+            
+            setTimeout(() => {
+                stopCameraAndClose();
+                resultsSection.scrollIntoView({ behavior: 'smooth' });
+            }, 1000);
+        }
+
+        function stopCameraAndClose() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+                videoElement.srcObject = null;
+            }
+            scanningModal.classList.add('hidden');
+        }
+
+        function handleModalBackgroundClick(event) {
+            if (event.target === scanningModal) {
+                stopCameraAndClose();
+            }
+        }
+
+        // --- IMAGE VIEW & ACTIONS ---
+        function showImageModal(event, url) {
+            event.stopPropagation();
+            currentImageURL = url;
+            currentMatchData = matchesMap[url]; // Get full metadata
+            
+            document.getElementById('modalImage').src = url;
+            imageModal.classList.remove('hidden');
+        }
+
+        function hideImageModal() {
+            imageModal.classList.add('hidden');
+        }
+
+        function toggleProfileModal() {
+            document.getElementById('userProfileModal').classList.toggle('hidden');
+        }
+
+        function handleDownload() {
+            if(!currentImageURL) return;
+            const link = document.createElement('a');
+            link.href = currentImageURL;
+            link.download = currentMatchData ? currentMatchData.filename : 'MyPhoto.jpg';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showMessage('Download started!');
+        }
+
+        function handleReport() {
+            if (!currentMatchData) return;
+            // FIXED: Mailto redirect
+            const subject = encodeURIComponent("Report Image: " + currentMatchData.filename);
+            const body = encodeURIComponent("I would like to report this image (" + currentMatchData.filename + ") for the following reason:\n\n");
+            window.location.href = `mailto:support@facefinder.ai?subject=${subject}&body=${body}`;
+        }
+
+        function showMessage(text) {
+             const msg = document.getElementById('scanMessage');
+             msg.textContent = text;
+             msg.classList.remove('opacity-0');
+             setTimeout(() => msg.classList.add('opacity-0'), 2500);
+        }
+
+        // --- CAMERAMAN PROFILE LOGIC ---
+        function showCameramanProfileSlide() {
+            if (!currentMatchData || !currentMatchData.photographer) {
+                alert("Photographer data not available for this image.");
+                return;
+            }
+
+            const p = currentMatchData.photographer;
+            
+            // Populate Data
+            document.getElementById('cameramanHeaderTitle').textContent = p.name || "Photographer";
+            document.getElementById('camName').textContent = p.name || "Unknown";
+            document.getElementById('camPostCount').textContent = (p.posts ? p.posts.length : 0) + " posts";
+            document.getElementById('camEmail').textContent = p.email || "No Email";
+            document.getElementById('camPhone').textContent = p.phone || "No Phone";
+            document.getElementById('camAddress').textContent = p.address || "No Address";
+            
+            // NEW: Folder and Image Name
+            document.getElementById('camFolderName').textContent = currentMatchData.folder_name || "Unknown Folder";
+            document.getElementById('camImageName').textContent = currentMatchData.filename || "";
+
+            // Populate Grid
+            const grid = document.getElementById('cameramanPostGrid');
+            grid.innerHTML = ''; // Clear old
+
+            if (p.posts && p.posts.length > 0) {
+                p.posts.forEach(postUrl => {
+                     grid.innerHTML += `
+                        <div class="aspect-square overflow-hidden bg-gray-800">
+                            <img src="${postUrl}" class="w-full h-full object-cover">
+                        </div>
+                     `;
+                });
+            } else {
+                 grid.innerHTML = '<p class="text-gray-500 text-xs p-4 col-span-3 text-center">No posts available.</p>';
+            }
+
+            cameramanModal.classList.remove('hidden');
+            document.getElementById('cameramanModalContent').classList.add('show');
+            imageModal.classList.add('hidden');
+            
+            lucide.createIcons();
+        }
+        
+        function hideCameramanProfileSlide() {
+            document.getElementById('cameramanModalContent').classList.remove('show');
+            setTimeout(() => cameramanModal.classList.add('hidden'), 300);
+        }
+
+        function handleCameramanBack() {
+             hideCameramanProfileSlide();
+        }
+
+        window.onload = checkAuthAndLoadProfile;
+    </script>
+</body>
+</html>

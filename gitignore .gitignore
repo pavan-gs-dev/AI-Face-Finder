@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+venv/
+static/temp_scan_*.jpg
+*.csv
+.idea/
+.vscode/

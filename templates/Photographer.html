@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FaceFinder AI - Photographer Portal</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --primary-color: #3b82f6; 
+            --background-dark: #202c3a; 
+            --card-dark: #2c3e50;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--background-dark);
+        }
+        /* Blurred Background */
+        .blur-container {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url('https://images.unsplash.com/photo-1492684223066-81342ee5ff30?q=80&w=2070&auto=format&fit=crop'); 
+            background-size: cover; background-position: center; filter: blur(10px); opacity: 0.6; z-index: 0;
+        }
+        #appContainer {
+            position: relative; z-index: 10; flex: 1; display: flex; flex-direction: column; width: 100%; min-height: 100vh;
+        }
+        #folderDetails, #sidebar {
+            background-color: rgba(30, 41, 59, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(59, 130, 246, 0.3); color: white;
+        }
+        #folderDetails h3 { color: var(--primary-color); }
+        #folderDetails p { color: #ccc; }
+        
+        /* Modals */
+        #profileModalContent { transition: transform 0.3s ease-out; transform: translateX(100%); }
+        #profileModalContent.show { transform: translateX(0); }
+        
+        .custom-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: rgba(59, 130, 246, 0.5); border-radius: 4px; }
+        
+        #newFolderInputContainer { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Camera Animation */
+        @keyframes lineScan { 0% { transform: translateY(100%); } 100% { transform: translateY(-100%); } }
+        .scanner-animation { background: linear-gradient(to top, transparent, rgba(59, 130, 246, 0.5), transparent); animation: lineScan 1.5s infinite linear; }
+    </style>
+</head>
+<body class="min-h-screen overflow-x-hidden text-white">
+
+    <div class="blur-container"></div> 
+
+    <div id="appContainer" class="flex flex-col">
+        <!-- Header -->
+        <header class="flex justify-between items-center p-4 bg-gray-900 sticky top-0 z-50 shadow-lg text-white">
+            <button onclick="toggleSidebar()" class="p-2 mr-4 rounded-md bg-gray-700 hover:bg-gray-600 transition md:hidden">
+                <i data-lucide="menu" class="w-6 h-6 text-white"></i>
+            </button>
+            <h1 class="text-2xl font-bold tracking-wider">
+                <span class="text-white">Face</span><span class="text-blue-600">Finder AI - Photographer</span>
+            </h1>
+            <button onclick="showProfileModal()" class="p-2 rounded-full bg-blue-600 hover:bg-blue-700 transition shadow-lg flex items-center gap-2">
+                <span id="headerUserName" class="text-sm font-semibold hidden md:block">Photographer</span>
+                <i data-lucide="user" class="w-6 h-6 text-white"></i>
+            </button>
+        </header>
+
+        <!-- Sidebar Overlay (z-index adjusted) -->
+        <div id="sidebarOverlay" class="fixed inset-0 bg-black/50 z-[55] hidden md:hidden" onclick="closeSidebar()"></div>
+
+        <div class="flex flex-1 overflow-hidden">
+            <!-- Sidebar (z-index adjusted to 60) -->
+            <aside id="sidebar" class="w-full max-w-xs flex flex-col p-4 border-r border-slate-700 fixed inset-y-0 left-0 z-[60] transform -translate-x-full transition-transform duration-300 md:relative md:translate-x-0 md:block md:max-w-xs">
+                <div class="flex justify-between items-center mb-4 md:hidden">
+                    <h2 class="text-xl font-semibold text-blue-400">Menu</h2>
+                    <button onclick="closeSidebar()" class="text-gray-400 hover:text-white">
+                        <i data-lucide="x" class="w-6 h-6"></i>
+                    </button>
+                </div>
+                
+                <h2 class="text-xl font-semibold mb-4 text-blue-400 hidden md:block">Folders</h2>
+                <div class="mb-4">
+                    <input type="text" id="folderSearchInput" placeholder="Search folders..." class="w-full p-2 text-sm text-gray-900 rounded-md border border-slate-700 focus:ring-blue-500 bg-white" oninput="filterFolders(this.value)">
+                </div>
+                <button onclick="showNewFolderInput()" class="flex items-center px-3 py-2 text-sm font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 transition shadow-lg mb-4 w-full text-white">
+                    <i data-lucide="folder-plus" class="w-5 h-5 mr-2"></i> + New Folder
+                </button>
+                <div id="newFolderInputContainer" class="mb-4 hidden">
+                    <input type="text" id="newFolderInput" placeholder="Enter folder name" class="w-full p-2 text-sm text-gray-900 rounded-md bg-white" onkeydown="if(event.key === 'Enter') createFolderFromInput()">
+                    <button onclick="createFolderFromInput()" class="mt-1 w-full text-sm py-1 bg-blue-600 hover:bg-blue-700 rounded-md text-white">Create</button>
+                </div>
+                <div id="foldersContainer" class="flex-1 custom-scroll overflow-y-auto space-y-2"></div>
+            </aside>
+
+            <!-- Main Content -->
+            <main class="flex-1 p-4 md:p-8 custom-scroll overflow-y-auto">
+                <div id="folderDetails" class="mt-4 p-6 rounded-xl hidden flex-col items-start md:items-center shadow-lg">
+                    <h3 id="currentFolderName" class="text-3xl font-bold mb-4 text-blue-400"></h3>
+                    <div class="flex flex-wrap gap-4 mb-8">
+                        <button onclick="showGenerateLinkModal()" class="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm text-white shadow-lg">
+                            <i data-lucide="qr-code" class="w-5 h-5 mr-2"></i> Generate Camera Link
+                        </button>
+                        
+                        <button onclick="openLiveCamera()" class="flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm text-white shadow-lg">
+                            <i data-lucide="camera" class="w-5 h-5 mr-2"></i> Live Capture
+                        </button>
+
+                        <button onclick="document.getElementById('manualUploadInput').click()" class="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm text-white shadow-lg">
+                            <i data-lucide="upload" class="w-5 h-5 mr-2"></i> Upload Manually
+                        </button>
+                        <input type="file" id="manualUploadInput" accept="image/*" class="hidden" onchange="handleManualUpload(event)">
+                    </div>
+                    <div id="uploadedImagesGrid" class="w-full grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mt-6">
+                        <p id="folderEmptyMessage" class="col-span-full text-center text-gray-300">No images uploaded yet.</p>
+                    </div>
+                </div>
+                <div id="initialMessage" class="mt-20 text-center text-gray-300">
+                    <p class="text-xl">Use the **+ New Folder** button in the menu to begin organizing your photos.</p>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- GENERATE LINK / QR CODE MODAL -->
+    <div id="cameraConnectModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-gray-800 p-8 rounded-xl w-full max-w-md text-center text-white relative">
+            <button onclick="hideGenerateLinkModal()" class="absolute top-3 right-3 text-gray-400 hover:text-white">
+                <i data-lucide="x" class="w-6 h-6"></i>
+            </button>
+            <h3 class="text-2xl font-semibold mb-6">Mobile Camera Link</h3>
+            
+            <!-- Step 1: Animation -->
+            <div id="qrLoadingState">
+                <div class="relative w-48 h-48 bg-gray-700 rounded-full border-4 border-blue-500 mx-auto overflow-hidden flex items-center justify-center mb-6">
+                    <div class="absolute inset-0 scanner-animation"></div>
+                    <i data-lucide="link" class="w-16 h-16 text-blue-400 z-10"></i>
+                </div>
+                <p class="text-lg text-blue-400">Generating secure link...</p>
+            </div>
+
+            <!-- Step 2: QR Code & Link -->
+            <div id="qrResultState" class="hidden flex-col items-center">
+                <div class="bg-white p-2 rounded-lg mb-4">
+                    <img id="qrCodeImage" src="" alt="QR Code" class="w-48 h-48">
+                </div>
+                <div class="w-full bg-gray-900 p-3 rounded-lg flex items-center justify-between mb-4 border border-gray-700">
+                    <span id="cameraLinkText" class="text-xs text-gray-400 truncate mr-2 flex-1 text-left"></span>
+                    <button onclick="copyCameraLink()" class="text-blue-400 hover:text-blue-300">
+                        <i data-lucide="copy" class="w-5 h-5"></i>
+                    </button>
+                </div>
+                <div class="flex gap-4 w-full">
+                    <a id="openLinkButton" href="#" target="_blank" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold">
+                        Open Link
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- LIVE CAMERA MODAL -->
+    <div id="liveCameraModal" class="fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center hidden">
+        <div class="relative w-full max-w-lg aspect-[3/4] bg-black rounded-lg overflow-hidden border border-gray-700">
+            <!-- Video Feed -->
+            <video id="cameraFeed" class="w-full h-full object-cover" autoplay playsinline></video>
+            
+            <!-- Canvas for Capture (Hidden) -->
+            <canvas id="captureCanvas" class="hidden"></canvas>
+            
+            <!-- Preview Image (Hidden Initially) -->
+            <img id="capturePreview" class="absolute inset-0 w-full h-full object-cover hidden">
+
+            <!-- Controls Overlay -->
+            <div class="absolute bottom-6 left-0 right-0 flex justify-center items-center space-x-8 z-20">
+                
+                <!-- State 1: Active Camera Controls -->
+                <div id="cameraControls" class="flex items-center space-x-8">
+                    <button onclick="closeLiveCamera()" class="p-3 bg-gray-800/80 rounded-full text-white hover:bg-gray-700">
+                        <i data-lucide="x" class="w-6 h-6"></i>
+                    </button>
+                    <button onclick="captureImage()" class="p-1 rounded-full border-4 border-white">
+                        <div class="w-14 h-14 bg-white rounded-full"></div>
+                    </button>
+                    <button onclick="flipCamera()" class="p-3 bg-gray-800/80 rounded-full text-white hover:bg-gray-700">
+                        <i data-lucide="rotate-ccw" class="w-6 h-6"></i>
+                    </button>
+                </div>
+
+                <!-- State 2: Preview Controls -->
+                <div id="previewControls" class="hidden flex items-center space-x-4">
+                    <button onclick="retakeImage()" class="px-6 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-full font-semibold">
+                        Retake
+                    </button>
+                    <button onclick="confirmLiveUpload()" class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full font-semibold">
+                        Confirm
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Profile Modal -->
+    <div id="profileModal" class="fixed inset-0 z-50 hidden" onclick="hideProfileModal()">
+        <div id="profileModalContent" class="bg-gray-900 text-gray-100 w-full max-w-md h-full overflow-y-auto shadow-2xl border-l border-gray-700 ml-auto" onclick="event.stopPropagation()">
+            <div class="p-4 flex items-center sticky top-0 bg-gray-900 border-b border-gray-800 z-10">
+                <button onclick="hideProfileModal()" class="mr-4 text-white hover:text-blue-400">
+                    <i data-lucide="arrow-left" class="w-6 h-6"></i>
+                </button>
+                <h2 class="text-lg font-semibold">Photographer Profile</h2>
+            </div>
+            <div class="p-6 border-b border-gray-800">
+                <div class="flex flex-col items-center space-y-4 mb-4">
+                    <div class="w-24 h-24 bg-gray-700 rounded-full flex items-center justify-center border-4 border-blue-400">
+                        <i data-lucide="camera" class="w-12 h-12 text-blue-300"></i>
+                    </div>
+                    <div class="text-center w-full">
+                        <p id="profileNameDisplay" class="text-xl font-bold w-full text-center">Loading Name...</p>
+                        <p id="profileEmailDisplay" class="text-sm text-gray-400 mt-1">Loading Email...</p>
+                        <p class="text-sm text-gray-400 mt-2"><span id="postCount">0</span> posts</p>
+                    </div>
+                </div>
+                
+                <div class="space-y-4 text-sm text-gray-300 mt-6">
+                    <div class="flex items-center border-b border-gray-700 pb-2">
+                        <i data-lucide="phone" class="w-5 h-5 mr-3 text-blue-400"></i>
+                        <span id="profilePhoneDisplay" class="text-lg">Loading Phone...</span>
+                    </div>
+                    
+                    <!-- Address Section -->
+                    <div class="flex items-center border-b border-gray-700 pb-2">
+                        <i data-lucide="map-pin" class="w-5 h-5 mr-3 text-blue-400"></i>
+                        <span id="profileAddressDisplay" class="text-lg flex-1">Loading Address...</span>
+                        <button id="addAddressBtn" onclick="openAddressModal()" class="ml-2 text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded hidden">Add Address</button>
+                        <button id="editAddressBtn" onclick="openAddressModal()" class="ml-2 text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded hidden">Edit</button>
+                    </div>
+                </div>
+                
+                <button onclick="logout()" class="w-full mt-8 py-2 bg-red-600 rounded-md font-medium hover:bg-red-700 transition text-white shadow-lg">
+                    <i data-lucide="log-out" class="w-4 h-4 mr-1 inline"></i> Sign Out
+                </button>
+                <button onclick="showPostUploadModal()" class="w-full mt-4 py-2 bg-green-600 rounded-md font-medium hover:bg-green-700 transition text-white shadow-lg">
+                    <i data-lucide="image-plus" class="w-4 h-4 mr-1 inline"></i> Upload New Post
+                </button>
+            </div>
+            <h3 class="text-lg font-semibold px-6 py-3 border-b border-gray-800">Recent Posts</h3>
+            <div id="profilePostGrid" class="grid grid-cols-3 gap-0.5 p-0.5">
+                <!-- Posts will be injected here via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Address Input Modal -->
+    <div id="addressModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-gray-800 p-6 rounded-xl w-full max-w-sm text-white border border-gray-700">
+            <h3 class="text-xl font-semibold mb-4">Enter Business Address</h3>
+            <textarea id="addressInput" rows="3" class="w-full p-2 text-sm text-gray-900 rounded-md bg-white border border-gray-600 focus:ring-blue-500 mb-4" placeholder="Enter your full studio address..."></textarea>
+            <div class="flex justify-end space-x-2">
+                <button onclick="closeAddressModal()" class="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-md text-sm">Cancel</button>
+                <button onclick="saveAddress()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md text-sm font-semibold">Save Address</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Other Modals -->
+    <div id="postUploadModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-gray-800 p-6 rounded-xl w-full max-w-sm text-white">
+            <h3 class="text-xl font-semibold mb-4">Upload New Post</h3>
+            <p class="text-gray-400 mb-4 text-sm">Select an image to display on your public profile.</p>
+            <input type="file" id="postUploadInput" accept="image/*" class="w-full text-sm text-gray-300">
+            <div class="mt-6 flex gap-2">
+                <button onclick="hidePostUploadModal()" class="w-1/2 py-2 bg-gray-600 rounded-md">Cancel</button>
+                <button onclick="submitPostUpload()" class="w-1/2 py-2 bg-blue-600 hover:bg-blue-700 rounded-md">Upload</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- POST VIEW MODAL -->
+    <div id="postViewModal" class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center hidden" onclick="hidePostViewModal()">
+        <div class="w-full max-w-sm bg-gray-900 rounded-lg overflow-hidden shadow-2xl border border-gray-800 m-4 text-white" onclick="event.stopPropagation()">
+            <div class="absolute top-4 right-4 z-10 md:hidden">
+                 <button onclick="hidePostViewModal()" class="p-2 bg-black/50 text-white rounded-full"><i data-lucide="x" class="w-6 h-6"></i></button>
+            </div>
+            <div id="postFeed" class="flex flex-col"></div>
+        </div>
+    </div>
+
+    <div id="folderImageModal" class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center hidden p-4" onclick="hideFolderImageModal()">
+        <div class="bg-gray-900 rounded-lg shadow-2xl max-w-3xl w-full text-white" onclick="event.stopPropagation()">
+            <div class="relative">
+                <button onclick="hideFolderImageModal()" class="absolute top-4 right-4 p-2 bg-black/50 text-white rounded-full"><i data-lucide="x" class="w-6 h-6"></i></button>
+                <img id="folderModalImage" src="" alt="Folder Image" class="w-full h-auto rounded-t-lg object-contain max-h-[70vh]">
+            </div>
+            <div class="p-4 flex justify-around items-center bg-gray-800 rounded-b-lg border-t border-gray-700">
+                <button class="flex flex-col items-center text-sm text-gray-400 hover:text-blue-400" onclick="handleFolderAction('download')"><i data-lucide="download" class="w-6 h-6 mb-1"></i> Download</button>
+                <button class="flex flex-col items-center text-sm text-gray-400 hover:text-green-400" onclick="document.getElementById('reuploadInput').click()"><i data-lucide="refresh-ccw" class="w-6 h-6 mb-1"></i> Re-upload</button>
+                <input type="file" id="reuploadInput" accept="image/*" class="hidden" onchange="handleReupload(event)">
+                <button class="flex flex-col items-center text-sm text-gray-400 hover:text-red-400" onclick="deleteFolderImage()"><i data-lucide="trash-2" class="w-6 h-6 mb-1"></i> Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        // --- AUTH & ADDRESS LOGIC ---
+
+        function preventBackNavigation() {
+            history.pushState(null, document.title, location.href);
+            window.addEventListener('popstate', function (event) {
+                history.pushState(null, document.title, location.href);
+            });
+        }
+
+        let currentUserId = null;
+
+        async function checkAuthAndLoadProfile() {
+            try {
+                preventBackNavigation();
+                const response = await fetch('/api/current_user');
+                if (response.status === 401 || response.status === 403) {
+                    window.location.replace('/'); 
+                    return;
+                }
+                const userData = await response.json();
+                currentUserId = userData.user_id;
+                
+                document.getElementById('headerUserName').textContent = userData.name || 'Photographer';
+                document.getElementById('profileNameDisplay').textContent = userData.name || 'Unknown';
+                document.getElementById('profileEmailDisplay').textContent = userData.email || 'N/A';
+                document.getElementById('profilePhoneDisplay').textContent = userData.phone || 'N/A';
+
+                // Handle Address Display
+                const addressDisplay = document.getElementById('profileAddressDisplay');
+                const addBtn = document.getElementById('addAddressBtn');
+                const editBtn = document.getElementById('editAddressBtn');
+
+                if (userData.address) {
+                    addressDisplay.textContent = userData.address;
+                    addressDisplay.classList.remove('hidden');
+                    addBtn.classList.add('hidden');
+                    editBtn.classList.remove('hidden');
+                } else {
+                    addressDisplay.textContent = "";
+                    addBtn.classList.remove('hidden');
+                    editBtn.classList.add('hidden');
+                }
+
+                // Load Posts after Auth
+                loadMyPosts();
+                
+                // Load Folders Initially and Handle Auto-Open
+                await loadFolders();
+                
+                // --- FEATURE: Auto-open last opened folder (Only on Init) ---
+                const lastId = localStorage.getItem('lastFolderId');
+                if (lastId) {
+                     // Check if folder exists in the loaded folders array
+                     const folderExists = folders.find(f => f.id == lastId);
+                     if (folderExists) {
+                         selectFolder(folderExists.id);
+                     }
+                }
+
+            } catch (error) {
+                console.error("Auth check failed:", error);
+                window.location.replace('/');
+            }
+        }
+
+        // --- POSTS LOGIC (UPLOAD & FETCH) ---
+        let postData = [];
+
+        async function loadMyPosts() {
+            try {
+                const res = await fetch('/api/get_photographer_posts');
+                if(res.ok) {
+                    const posts = await res.json();
+                    postData = posts.map((p, index) => ({ id: index, url: p.url, filename: p.filename }));
+                    renderProfilePostsGrid();
+                }
+            } catch(e) {
+                console.error("Failed to load posts", e);
+            }
+        }
+
+        function renderProfilePostsGrid() {
+            const grid = document.getElementById('profilePostGrid');
+            if (postData.length === 0) {
+                grid.innerHTML = '<p class="col-span-3 text-center text-gray-500 py-4 text-xs">No posts uploaded.</p>';
+                document.getElementById('postCount').textContent = '0';
+                return;
+            }
+
+            grid.innerHTML = postData.map(post => `
+                <div class="relative overflow-hidden aspect-square cursor-pointer hover:opacity-80 transition bg-gray-800" onclick="showPostViewModal(${post.id})">
+                    <img src="${post.url}" alt="Post" class="w-full h-full object-cover">
+                </div>
+            `).join('');
+            document.getElementById('postCount').textContent = postData.length;
+        }
+
+        async function submitPostUpload() {
+            const input = document.getElementById('postUploadInput');
+            if (!input.files || !input.files[0]) {
+                showMessage("Please select a file first");
+                return;
+            }
+
+            const file = input.files[0];
+            const formData = new FormData();
+            formData.append('image', file);
+
+            try {
+                // Show uploading state (optional)
+                showMessage("Uploading...");
+                
+                const response = await fetch('/api/upload_post', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    showMessage("Post Uploaded Successfully!");
+                    input.value = ""; // Clear input
+                    hidePostUploadModal();
+                    loadMyPosts(); // Reload grid
+                } else {
+                    const err = await response.json();
+                    showMessage(err.error || "Upload failed");
+                }
+            } catch (e) {
+                console.error(e);
+                showMessage("Server Error");
+            }
+        }
+
+        function showPostUploadModal() { document.getElementById('postUploadModal').classList.remove('hidden'); }
+        function hidePostUploadModal() { document.getElementById('postUploadModal').classList.add('hidden'); }
+
+        function showPostViewModal(id) {
+            document.getElementById('postViewModal').classList.remove('hidden');
+            const feed = document.getElementById('postFeed');
+            feed.innerHTML = '';
+            const post = postData.find(p => p.id === id);
+            if(post) {
+                feed.innerHTML = `
+                    <div class="bg-gray-900 border-b border-gray-800 p-4">
+                        <img src="${post.url}" class="w-full h-auto rounded-lg">
+                        <div class="flex items-center justify-between mt-3">
+                             <div class="flex gap-4 text-gray-400 text-sm items-center">
+                                <i data-lucide="heart" class="w-6 h-6 text-red-500"></i>
+                                <span class="truncate max-w-[150px]">${post.filename || 'Uploaded Image'}</span>
+                            </div>
+                            <button onclick="deletePost('${post.filename}')" class="text-red-400 hover:text-red-300 transition p-2 rounded hover:bg-red-400/10" title="Delete Post">
+                                <i data-lucide="trash-2" class="w-5 h-5"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+                lucide.createIcons();
+            }
+        }
+        function hidePostViewModal() { document.getElementById('postViewModal').classList.add('hidden'); }
+
+        async function deletePost(filename) {
+            if(!filename) return;
+            try {
+                const response = await fetch('/api/delete_post', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ filename: filename })
+                });
+                if(response.ok) {
+                    showMessage("Post deleted.");
+                    hidePostViewModal();
+                    loadMyPosts(); 
+                } else {
+                    showMessage("Failed to delete post.");
+                }
+            } catch(e) {
+                console.error(e);
+                showMessage("Error deleting post.");
+            }
+        }
+
+        // --- ADDRESS MODAL LOGIC ---
+        const addressModal = document.getElementById('addressModal');
+        const addressInput = document.getElementById('addressInput');
+
+        function openAddressModal() {
+            // Pre-fill if existing
+            const currentAddr = document.getElementById('profileAddressDisplay').textContent;
+            if(currentAddr && currentAddr !== "Loading Address...") addressInput.value = currentAddr;
+            addressModal.classList.remove('hidden');
+        }
+
+        function closeAddressModal() {
+            addressModal.classList.add('hidden');
+        }
+
+        async function saveAddress() {
+            const newAddress = addressInput.value.trim();
+            if (!newAddress) {
+                showMessage("Address cannot be empty");
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/save_address', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ address: newAddress })
+                });
+
+                if (response.ok) {
+                    // Update UI immediately
+                    document.getElementById('profileAddressDisplay').textContent = newAddress;
+                    document.getElementById('addAddressBtn').classList.add('hidden');
+                    document.getElementById('editAddressBtn').classList.remove('hidden');
+                    closeAddressModal();
+                    showMessage("Address Saved Successfully!");
+                } else {
+                    showMessage("Failed to save address.");
+                }
+            } catch (e) {
+                console.error(e);
+                showMessage("Server Error");
+            }
+        }
+
+        async function logout() {
+            await fetch('/auth/logout', { method: 'POST' });
+            window.location.replace('/');
+        }
+
+        // --- FOLDER & SIDEBAR LOGIC (UPDATED WITH API) ---
+        let folders = [];
+        let filteredFolders = [];
+        let currentFolderId = null;
+        let currentImageToReupload = null; 
+        let currentImageName = null;
+        let currentImageIndex = null;
+        
+        async function loadFolders() {
+             try {
+                 const res = await fetch('/api/get_folders');
+                 if (res.ok) {
+                     const data = await res.json();
+                     folders = data.map(f => ({
+                         id: parseInt(f.folder_id),
+                         name: f.folder_name,
+                         count: f.image_count,
+                         images: [] 
+                     }));
+                     filteredFolders = [...folders]; // Initialize filtered list
+                     renderFolders();
+                 }
+             } catch (e) {
+                 console.error("Failed to load folders", e);
+             }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            checkAuthAndLoadProfile();
+        });
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            
+            sidebar.classList.toggle('-translate-x-full');
+            overlay.classList.toggle('hidden');
+        }
+
+        function closeSidebar() {
+             const sidebar = document.getElementById('sidebar');
+             const overlay = document.getElementById('sidebarOverlay');
+             
+             // Ensure it is closed (hidden state)
+             sidebar.classList.add('-translate-x-full');
+             overlay.classList.add('hidden');
+        }
+
+        function filterFolders(searchTerm) {
+            searchTerm = searchTerm.toLowerCase();
+            if (!searchTerm) {
+                filteredFolders = [...folders];
+            } else {
+                filteredFolders = folders.filter(f => f.name.toLowerCase().includes(searchTerm));
+            }
+            renderFolders();
+        }
+
+        function renderFolders() {
+            const container = document.getElementById('foldersContainer');
+            if (filteredFolders.length === 0) {
+                 container.innerHTML = '<p class="text-gray-500 text-sm text-center mt-4">No folders found.</p>';
+                 return;
+            }
+            container.innerHTML = filteredFolders.map(folder => `
+                <div onclick="handleFolderClick(${folder.id})" class="folder-item p-3 rounded-lg flex items-center space-x-3 cursor-pointer transition ${folder.id === currentFolderId ? 'bg-blue-600 shadow-lg text-white' : 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-700'}">
+                    <i data-lucide="${folder.id === currentFolderId ? 'folder-open' : 'folder'}" class="w-5 h-5 text-blue-400"></i>
+                    <span class="truncate flex-1">${folder.name}</span>
+                    <span class="text-xs font-medium bg-gray-700 px-2 py-0.5 rounded-full" id="count-${folder.id}">${folder.count}</span>
+                    <!-- REFRESH BUTTON -->
+                    <button onclick="refreshFolder(event, ${folder.id})" class="p-1 hover:bg-slate-600 rounded-full transition z-10" title="Refresh Folder">
+                        <i data-lucide="refresh-cw" class="w-4 h-4 text-gray-400 hover:text-white"></i>
+                    </button>
+                </div>
+            `).join('');
+            lucide.createIcons();
+        }
+
+        // New wrapper for User Interaction vs Programmatic Update
+        function handleFolderClick(id) {
+            selectFolder(id);
+            // Close sidebar ONLY on direct user click on mobile
+            if (window.innerWidth < 768) {
+                closeSidebar();
+            }
+        }
+
+        async function refreshFolder(e, folderId) {
+            e.stopPropagation();
+            const icon = e.currentTarget.querySelector('i');
+            icon.classList.add('animate-spin'); 
+            
+            // Reload contents for this folder. 
+            // If it is the current folder, it will update the grid. 
+            // If not, it will just update the count in sidebar.
+            await loadImagesForFolder(folderId, folderId === currentFolderId);
+            
+            setTimeout(() => icon.classList.remove('animate-spin'), 1000); // Visual feedback
+        }
+
+        function showNewFolderInput() {
+            document.getElementById('newFolderInputContainer').classList.remove('hidden');
+            document.getElementById('newFolderInput').focus();
+        }
+
+        async function createFolderFromInput() {
+            const input = document.getElementById('newFolderInput');
+            const name = input.value.trim();
+            if (name) {
+                try {
+                    const res = await fetch('/api/create_folder', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ folder_name: name })
+                    });
+                    
+                    if (res.ok) {
+                        showMessage(`Folder '${name}' created.`);
+                        input.value = '';
+                        loadFolders(); 
+                    } else {
+                         const err = await res.json();
+                         showMessage(err.error || "Failed to create folder");
+                    }
+                } catch(e) {
+                    console.error(e);
+                    showMessage("Server Error");
+                }
+            }
+            document.getElementById('newFolderInputContainer').classList.add('hidden');
+        }
+
+        async function selectFolder(id) {
+            currentFolderId = id;
+            localStorage.setItem('lastFolderId', id); // Save to LocalStorage
+
+            const folder = folders.find(f => f.id === id);
+            
+            if (folder) {
+                document.getElementById('initialMessage').classList.add('hidden');
+                document.getElementById('folderDetails').classList.remove('hidden');
+                document.getElementById('currentFolderName').textContent = folder.name;
+                
+                await loadImagesForFolder(id);
+            }
+            renderFolders(); // Update UI active state highlights
+            // NOTE: Removed toggleSidebar() here to prevent auto-opening on refresh/update
+        }
+
+        async function loadImagesForFolder(folderId, updateGridView = true) {
+            try {
+                const res = await fetch(`/api/get_folder_images?folder_id=${folderId}`);
+                if (res.ok) {
+                    const images = await res.json();
+                    
+                    if (updateGridView) {
+                        renderImagesGrid(images);
+                    }
+                    
+                    // Update count in sidebar immediately
+                    const countEl = document.getElementById(`count-${folderId}`);
+                    if(countEl) countEl.textContent = images.length;
+                    
+                    // CRITICAL FIX: Update the global state so re-renders don't revert the count
+                    const folderObj = folders.find(f => f.id === folderId);
+                    if (folderObj) {
+                        folderObj.count = images.length;
+                    }
+                }
+            } catch(e) {
+                console.error("Error loading folder images", e);
+                if (updateGridView) {
+                    document.getElementById('uploadedImagesGrid').innerHTML = '<p class="col-span-full text-center text-red-400">Failed to load images.</p>';
+                }
+            }
+        }
+
+        function renderImagesGrid(images) {
+            const grid = document.getElementById('uploadedImagesGrid');
+            grid.innerHTML = '';
+            
+            if (images.length === 0) {
+                grid.innerHTML = '<p class="col-span-full text-center text-gray-500 p-8">No images uploaded yet.</p>';
+                return;
+            }
+            
+            images.forEach((img, idx) => {
+                grid.innerHTML += `
+                    <div class="relative overflow-hidden rounded-lg shadow-xl aspect-square cursor-pointer hover:opacity-80 transition bg-gray-800" onclick="showFolderImageModal('${img.url}', '${img.image_name}', ${idx})">
+                        <img src="${img.url}" class="w-full h-full object-cover">
+                        <div class="absolute bottom-0 left-0 right-0 bg-black/60 text-xs p-1 text-center truncate text-white">${img.image_name}</div>
+                    </div>`;
+            });
+        }
+
+        // --- MANUAL UPLOAD LOGIC ---
+        async function handleManualUpload(e) {
+            if (!currentFolderId) {
+                showMessage("Please select a folder first.");
+                return;
+            }
+            
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('folder_id', currentFolderId);
+
+            showMessage("Uploading image...");
+
+            try {
+                const response = await fetch('/api/upload_folder_image', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    showMessage("Image uploaded successfully!");
+                    await loadImagesForFolder(currentFolderId); 
+                    loadFolders(); // Refresh counts globally
+                } else {
+                    const err = await response.json();
+                    showMessage(err.error || "Upload failed");
+                }
+            } catch(err) {
+                console.error(err);
+                showMessage("Server error during upload");
+            }
+            
+            e.target.value = ""; // Reset input
+        }
+
+        // --- LIVE CAMERA & QR CODE LOGIC ---
+        let stream = null;
+        let facingMode = 'user'; 
+
+        function showGenerateLinkModal() {
+            if(!currentFolderId) { showMessage("Select a folder first"); return; }
+            
+            const modal = document.getElementById('cameraConnectModal');
+            modal.classList.remove('hidden');
+            
+            // Show Loading State
+            document.getElementById('qrLoadingState').classList.remove('hidden');
+            document.getElementById('qrResultState').classList.add('hidden');
+            document.getElementById('qrResultState').classList.remove('flex');
+
+            setTimeout(() => {
+                // Generate secure link
+                const link = `${window.location.origin}/mobile_capture/${currentUserId}/${currentFolderId}`;
+                const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(link)}`;
+                
+                document.getElementById('qrCodeImage').src = qrUrl;
+                document.getElementById('cameraLinkText').textContent = link;
+                document.getElementById('openLinkButton').href = link;
+                
+                // Show Result
+                document.getElementById('qrLoadingState').classList.add('hidden');
+                document.getElementById('qrResultState').classList.remove('hidden');
+                document.getElementById('qrResultState').classList.add('flex');
+            }, 1500); // Animation delay
+        }
+
+        function hideGenerateLinkModal() {
+            document.getElementById('cameraConnectModal').classList.add('hidden');
+        }
+
+        function copyCameraLink() {
+            const link = document.getElementById('cameraLinkText').textContent;
+            if(link) {
+                // Fallback copy for iframes
+                const textArea = document.createElement("textarea");
+                textArea.value = link;
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    showMessage("Link copied!");
+                } catch (err) {
+                    console.error('Copy failed', err);
+                }
+                document.body.removeChild(textArea);
+            }
+        }
+
+        async function openLiveCamera() {
+            if (!currentFolderId) {
+                showMessage("Please select a folder first.");
+                return;
+            }
+            
+            const modal = document.getElementById('liveCameraModal');
+            modal.classList.remove('hidden');
+            
+            // Reset state
+            document.getElementById('cameraFeed').classList.remove('hidden');
+            document.getElementById('capturePreview').classList.add('hidden');
+            document.getElementById('cameraControls').classList.remove('hidden');
+            document.getElementById('previewControls').classList.add('hidden');
+            
+            await startCameraStream();
+        }
+
+        async function startCameraStream() {
+            try {
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                }
+                const constraints = {
+                    video: { facingMode: facingMode }
+                };
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                const video = document.getElementById('cameraFeed');
+                video.srcObject = stream;
+            } catch (err) {
+                console.error("Camera access denied or error:", err);
+                showMessage("Camera access needed.");
+                closeLiveCamera();
+            }
+        }
+
+        function closeLiveCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            document.getElementById('liveCameraModal').classList.add('hidden');
+        }
+
+        async function flipCamera() {
+            facingMode = facingMode === 'user' ? 'environment' : 'user';
+            await startCameraStream();
+        }
+
+        function captureImage() {
+            const video = document.getElementById('cameraFeed');
+            const canvas = document.getElementById('captureCanvas');
+            const preview = document.getElementById('capturePreview');
+            
+            // Set canvas dimensions to match video
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            
+            // Draw frame
+            const context = canvas.getContext('2d');
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Show preview
+            preview.src = canvas.toDataURL('image/jpeg');
+            
+            // Switch UI state
+            video.classList.add('hidden');
+            preview.classList.remove('hidden');
+            document.getElementById('cameraControls').classList.add('hidden');
+            document.getElementById('previewControls').classList.remove('hidden');
+        }
+
+        function retakeImage() {
+            // Reset UI state
+            document.getElementById('cameraFeed').classList.remove('hidden');
+            document.getElementById('capturePreview').classList.add('hidden');
+            document.getElementById('cameraControls').classList.remove('hidden');
+            document.getElementById('previewControls').classList.add('hidden');
+        }
+
+        async function confirmLiveUpload() {
+            const canvas = document.getElementById('captureCanvas');
+            
+            // Convert canvas to blob
+            canvas.toBlob(async (blob) => {
+                if (!blob) {
+                    showMessage("Error processing image.");
+                    return;
+                }
+                
+                // Create File from Blob
+                const file = new File([blob], "capture.jpg", { type: "image/jpeg" });
+                
+                const formData = new FormData();
+                formData.append('image', file);
+                formData.append('folder_id', currentFolderId);
+                
+                showMessage("Uploading capture...");
+                
+                try {
+                    const response = await fetch('/api/upload_folder_image', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (response.ok) {
+                        showMessage("Captured image uploaded!");
+                        closeLiveCamera();
+                        await loadImagesForFolder(currentFolderId);
+                        loadFolders();
+                    } else {
+                        showMessage("Upload failed.");
+                    }
+                } catch(e) {
+                    console.error(e);
+                    showMessage("Server error.");
+                }
+            }, 'image/jpeg', 0.9);
+        }
+
+        // --- MODAL DISPLAY LOGIC ---
+        function showProfileModal() {
+            const modal = document.getElementById('profileModal');
+            modal.classList.remove('hidden');
+            setTimeout(() => document.getElementById('profileModalContent').classList.add('show'), 10);
+        }
+        function hideProfileModal() {
+            document.getElementById('profileModalContent').classList.remove('show');
+            setTimeout(() => document.getElementById('profileModal').classList.add('hidden'), 300);
+        }
+
+        function showFolderImageModal(url, imgName, idx) {
+            currentImageToReupload = url; 
+            currentImageName = imgName;
+            currentImageIndex = idx;
+            document.getElementById('folderModalImage').src = url;
+            document.getElementById('folderImageModal').classList.remove('hidden');
+        }
+        function hideFolderImageModal() { document.getElementById('folderImageModal').classList.add('hidden'); }
+
+        function handleFolderAction(action) {
+            if(action === 'download') {
+                const a = document.createElement('a');
+                a.href = currentImageToReupload;
+                a.download = currentImageName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                showMessage("Downloading...");
+            }
+            hideFolderImageModal();
+        }
+
+        // --- NEW RE-UPLOAD & DELETE LOGIC ---
+
+        async function handleReupload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            if (!currentImageName) {
+                showMessage("Error: No image selected to replace.");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('old_image_name', currentImageName);
+
+            showMessage("Re-uploading...");
+
+            try {
+                const response = await fetch('/api/reupload_folder_image', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if(response.ok) {
+                    showMessage("Image re-uploaded successfully!");
+                    hideFolderImageModal();
+                    await loadImagesForFolder(currentFolderId);
+                } else {
+                    showMessage("Failed to re-upload.");
+                }
+            } catch(e) {
+                console.error(e);
+                showMessage("Server error.");
+            }
+            e.target.value = ""; // Reset
+        }
+
+        async function deleteFolderImage() {
+            if (!currentImageName) return;
+            
+            if(!confirm("Are you sure you want to delete this image?")) return;
+
+            try {
+                const response = await fetch('/api/delete_folder_image', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ image_name: currentImageName })
+                });
+
+                if(response.ok) {
+                    showMessage("Image deleted.");
+                    hideFolderImageModal();
+                    await loadImagesForFolder(currentFolderId);
+                    loadFolders(); // Refresh sidebar counts
+                } else {
+                    showMessage("Failed to delete.");
+                }
+            } catch(e) {
+                console.error(e);
+                showMessage("Server error.");
+            }
+        }
+
+        function showMessage(text) {
+            let bar = document.getElementById('scanMessage');
+            if(!bar) {
+                bar = document.createElement('p'); bar.id = 'scanMessage';
+                bar.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 p-3 bg-blue-600 rounded-lg text-white z-50 transition-opacity duration-300 opacity-0';
+                document.body.appendChild(bar);
+            }
+            bar.textContent = text; bar.classList.remove('opacity-0');
+            setTimeout(() => bar.classList.add('opacity-0'), 3000);
+        }
+    </script>
+</body>
+</html>
