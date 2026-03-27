@@ -59,7 +59,7 @@ AI_FACEFINDER/
 1. Clone the repository
 
 ```
-git clone https://github.com/yourusername/ai-facefinder.git
+git clone https://github.com/pavan-gs-dev/ai-facefinder.git
 ```
 
 2. Go to project folder
@@ -113,4 +113,4 @@ Face recognition may take time if there are many photos. Performance depends on 
 
 ## 👨‍💻 Author
 
-Pavan Kumar
+Pavan Kumar G S 
